@@ -1,6 +1,8 @@
 package tech.tresearchgroup.palila.model;
 
 import lombok.Data;
+import tech.tresearchgroup.dao.model.BasicObjectInterface;
+import tech.tresearchgroup.dao.model.LockType;
 
 import java.util.Date;
 

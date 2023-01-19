@@ -2,44 +2,37 @@ package tech.tresearchgroup.palila.controller;
 
 import io.activej.http.HttpRequest;
 import io.activej.http.HttpResponse;
+import tech.tresearchgroup.palila.model.Card;
+import tech.tresearchgroup.palila.model.enums.ReturnType;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.sql.SQLException;
-import java.util.List;
 
 public interface GenericControllerInterface {
-    Object createSecureResponse(Object object, HttpRequest httpRequest) throws Exception;
+    Object createSecureResponse(Object object, ReturnType returnType, HttpRequest httpRequest) throws Exception;
 
-    byte[] createSecureAPIResponse(Object object, HttpRequest httpRequest) throws Exception;
+    Object readSecureResponse(long id, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException, IOException;
 
-    Object readSecureResponse(long id, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException;
-
-    byte[] readSecureAPIResponse(long id, HttpRequest httpRequest) throws IOException, SQLException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException;
-
-    List readPaginatedResponse(int page, int pageSize, boolean full, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
-
-    byte[] readPaginatedAPIResponse(int page, int pageSize, boolean full, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IOException, IllegalAccessException, InstantiationException;
+    Object readPaginatedResponse(int page, int pageSize, boolean full, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException;
 
     boolean update(long id, Object object, HttpRequest httpRequest) throws Exception;
 
     boolean delete(long id, HttpRequest httpRequest) throws Exception;
 
-    List search(String query, String returnColumn, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
+    Object search(String query, String returnColumn, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException;
 
-    byte[] searchAPIResponse(String query, String returnColumn, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IOException, IllegalAccessException, InstantiationException;
+    Object readOrderByPaginated(int resultCount, int page, String orderBy, boolean ascending, boolean full, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException;
 
-    List readOrderByPaginated(int resultCount, int page, String orderBy, boolean ascending, boolean full, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
+    Long getTotal(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException;
 
-    byte[] readOrderByPaginatedAPI(int resultCount, int page, String orderBy, boolean ascending, boolean full, HttpRequest httpRequest) throws IOException, SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
-
-    Long getTotal(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
-
-    Long getTotalPages(int maxResultsSize, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
+    Long getTotalPages(int maxResultsSize, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException;
 
     HttpResponse deleteAllIndexes(HttpRequest httpRequest) throws Exception;
 
     boolean reindex(HttpRequest httpRequest) throws Exception;
 
-    Object getSample(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException;
+    Object getSample(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException;
+
+    Card toCard(Object object, String action) throws InvocationTargetException, IllegalAccessException, NoSuchMethodException;
 }

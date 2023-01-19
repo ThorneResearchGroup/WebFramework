@@ -2,6 +2,7 @@ package tech.tresearchgroup.palila.model;
 
 import io.activej.serializer.annotations.Serialize;
 import io.activej.serializer.annotations.SerializeNullable;
+import tech.tresearchgroup.dao.model.BasicObjectInterface;
 import tech.tresearchgroup.palila.model.enums.PermissionGroupEnum;
 
 public interface BasicUserObjectInterface extends BasicObjectInterface {

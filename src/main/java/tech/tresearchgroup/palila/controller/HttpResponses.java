@@ -3,8 +3,8 @@ package tech.tresearchgroup.palila.controller;
 import io.activej.http.HttpHeaders;
 import io.activej.http.HttpResponse;
 import io.activej.inject.module.AbstractModule;
+import tech.tresearchgroup.cao.model.CachedEntity;
 import tech.tresearchgroup.palila.model.BaseSettings;
-import tech.tresearchgroup.palila.model.CachedEntity;
 import tech.tresearchgroup.palila.model.enums.CompressionMethodEnum;
 
 import java.io.IOException;
@@ -104,5 +104,9 @@ public class HttpResponses extends AbstractModule {
 
     public HttpResponse notImplemented() {
         return HttpResponse.ofCode(501);
+    }
+
+    public HttpResponse unavailable() {
+        return HttpResponse.ofCode(503);
     }
 }

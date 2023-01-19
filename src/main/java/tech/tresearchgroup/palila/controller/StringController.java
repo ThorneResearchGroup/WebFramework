@@ -11,4 +11,16 @@ public class StringController {
         }
         return builder.toString();
     }
+
+    public static String splitCamelCase(String s) {
+        String string = s.replaceAll(
+            String.format("%s|%s|%s",
+                "(?<=[A-Z])(?=[A-Z][a-z])",
+                "(?<=[^A-Z])(?=[A-Z])",
+                "(?<=[A-Za-z])(?=[^A-Za-z])"
+            ),
+            " "
+        );
+        return string.substring(0, 1).toUpperCase() + string.substring(1);
+    }
 }
