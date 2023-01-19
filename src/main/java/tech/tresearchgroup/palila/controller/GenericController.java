@@ -6,26 +6,31 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.activej.http.HttpRequest;
 import io.activej.http.HttpResponse;
 import io.activej.serializer.BinarySerializer;
-import tech.tresearchgroup.palila.model.BaseSettings;
-import tech.tresearchgroup.palila.model.BasicFormObject;
-import tech.tresearchgroup.palila.model.SecurityLog;
-import tech.tresearchgroup.palila.model.enums.CacheTypesEnum;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tech.tresearchgroup.cao.model.CacheTypesEnum;
+import tech.tresearchgroup.palila.model.*;
 import tech.tresearchgroup.palila.model.enums.PermissionGroupEnum;
+import tech.tresearchgroup.palila.model.enums.ReturnType;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.LinkedList;
 import java.util.List;
 
 public class GenericController extends BaseController implements GenericControllerInterface {
+    private static final Logger logger = LoggerFactory.getLogger(GenericController.class);
     private final PermissionGroupEnum CREATE_PERMISSION_LEVEL;
     private final PermissionGroupEnum READ_PERMISSION_LEVEL;
     private final PermissionGroupEnum UPDATE_PERMISSION_LEVEL;
     private final PermissionGroupEnum DELETE_PERMISSION_LEVEL;
     private final PermissionGroupEnum SEARCH_PERMISSION_LEVEL;
     private final BasicUserController basicUserController;
+    private final Card cardTemplate;
 
     public GenericController(HikariDataSource hikariDataSource,
                              Gson gson,
@@ -40,7 +45,8 @@ public class GenericController extends BaseController implements GenericControll
                              PermissionGroupEnum updatePermissionLevel,
                              PermissionGroupEnum deletePermissionLevel,
                              PermissionGroupEnum searchPermissionLevel,
-                             BasicUserController basicUserController) throws Exception {
+                             BasicUserController basicUserController,
+                             Card cardTemplate) throws Exception {
         super(hikariDataSource, gson, client, theClass, serializer, reindexSize, searchColumn, sample);
         this.CREATE_PERMISSION_LEVEL = createPermissionLevel;
         this.READ_PERMISSION_LEVEL = readPermissionLevel;
@@ -48,10 +54,11 @@ public class GenericController extends BaseController implements GenericControll
         this.DELETE_PERMISSION_LEVEL = deletePermissionLevel;
         this.SEARCH_PERMISSION_LEVEL = searchPermissionLevel;
         this.basicUserController = basicUserController;
+        this.cardTemplate = cardTemplate;
     }
 
     @Override
-    public Object createSecureResponse(Object object, HttpRequest httpRequest) throws Exception {
+    public Object createSecureResponse(Object object, ReturnType returnType, HttpRequest httpRequest) throws Exception {
         if (canAccess(httpRequest, CREATE_PERMISSION_LEVEL, basicUserController)) {
             if (BaseSettings.loggingEnabled) {
                 Long userId = getUserId(httpRequest);
@@ -61,26 +68,20 @@ public class GenericController extends BaseController implements GenericControll
             }
             if (genericDAO.create(object)) {
                 genericSAO.createDocument(object, index);
-                genericPageCAO.delete();
-                return object;
+                genericCAO.delete(CacheTypesEnum.PAGE_API, theClass);
+                genericCAO.delete(CacheTypesEnum.PAGE_DATABASE, theClass);
+                if (returnType.equals(ReturnType.OBJECT)) {
+                    return object;
+                } else if (returnType.equals(ReturnType.JSON)) {
+                    return CompressionController.compress(gson.toJson(object).getBytes());
+                }
             }
         }
         return null;
     }
 
     @Override
-    public byte[] createSecureAPIResponse(Object object, HttpRequest httpRequest) throws Exception {
-        if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
-            Object createdObject = createSecureResponse(object, httpRequest);
-            if (createdObject != null) {
-                return CompressionController.compress(gson.toJson(createdObject).getBytes());
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public Object readSecureResponse(long id, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    public Object readSecureResponse(long id, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException, IOException {
         if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
             if (BaseSettings.loggingEnabled) {
                 Long userId = getUserId(httpRequest);
@@ -88,62 +89,40 @@ public class GenericController extends BaseController implements GenericControll
                 SecurityLog securityLog = new SecurityLog("read", theClass.getSimpleName() + "-" + id, userId, apiKey);
                 loggingDAO.create(securityLog);
             }
-            byte[] cachedData = genericLocalCAO.read(CacheTypesEnum.DATABASE, id);
+            byte[] cachedData = (byte[]) genericCAO.read(CacheTypesEnum.DATABASE, id);
             Object object;
             if (cachedData != null) {
                 if (BaseSettings.debug) {
-                    System.out.println("Cache hit: " + "/v1/" + simpleName);
+                    logger.info("Cache hit: " + "/v1/" + simpleName);
                 }
                 object = ActiveJSerializer.deserialize(cachedData, serializer);
             } else {
                 if (BaseSettings.debug) {
-                    System.out.println("Cache miss: " + "/v1/" + simpleName);
+                    logger.info("Cache miss: " + "/v1/" + simpleName);
                 }
                 object = genericDAO.read(id, theClass);
                 if (BaseSettings.cacheEnable) {
                     if (object != null) {
                         byte[] binary = ActiveJSerializer.serialize(object, serializer);
-                        genericLocalCAO.create(CacheTypesEnum.DATABASE, id, binary);
+                        genericCAO.create(CacheTypesEnum.DATABASE, id, binary);
                     }
                 }
             }
-            return object;
+            if (returnType.equals(ReturnType.OBJECT)) {
+                return object;
+            } else if (returnType.equals(ReturnType.JSON)) {
+                byte[] compressed = CompressionController.compress(gson.toJson(object).getBytes());
+                genericCAO.create(CacheTypesEnum.API, id, compressed);
+                return compressed;
+            }
         } else {
             return unauthorized();
         }
-    }
-
-    @Override
-    public byte[] readSecureAPIResponse(long id, HttpRequest httpRequest) throws IOException, SQLException, InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-        if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
-            if (BaseSettings.loggingEnabled) {
-                Long userId = getUserId(httpRequest);
-                String apiKey = getJwt(httpRequest);
-                SecurityLog securityLog = new SecurityLog("read", theClass.getSimpleName() + "-" + id, userId, apiKey);
-                loggingDAO.create(securityLog);
-            }
-            byte[] cacheData = genericLocalCAO.read(CacheTypesEnum.API, id);
-            if (cacheData != null) {
-                if (BaseSettings.debug) {
-                    System.out.println("Cache hit!");
-                }
-                return cacheData;
-            }
-            Object readObject = readSecureResponse(id, httpRequest);
-            if (readObject != null) {
-                if (BaseSettings.debug) {
-                    System.out.println("Cache miss: " + "/v1/" + simpleName);
-                }
-                byte[] compressed = CompressionController.compress(gson.toJson(readObject).getBytes());
-                genericLocalCAO.create(CacheTypesEnum.API, id, compressed);
-                return compressed;
-            }
-        }
         return null;
     }
 
     @Override
-    public List readPaginatedResponse(int page, int pageSize, boolean full, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public Object readPaginatedResponse(int page, int pageSize, boolean full, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
             if (BaseSettings.loggingEnabled) {
                 Long userId = getUserId(httpRequest);
@@ -151,34 +130,13 @@ public class GenericController extends BaseController implements GenericControll
                 SecurityLog securityLog = new SecurityLog("read", theClass.getSimpleName() + "-" + page + "_" + pageSize, userId, apiKey);
                 loggingDAO.create(securityLog);
             }
-            return genericDAO.readPaginated(pageSize, page, theClass, full);
-        }
-        return null;
-    }
-
-    @Override
-    public byte[] readPaginatedAPIResponse(int page, int pageSize, boolean full, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IOException, IllegalAccessException, InstantiationException {
-        if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
-            if (BaseSettings.loggingEnabled) {
-                Long userId = getUserId(httpRequest);
-                String apiKey = getJwt(httpRequest);
-                SecurityLog securityLog = new SecurityLog("read", theClass.getSimpleName() + "-" + page + "_" + pageSize, userId, apiKey);
-                loggingDAO.create(securityLog);
-            }
-            byte[] compressed = genericPageCAO.read("/v1/" + simpleName, page, pageSize);
-            if (compressed != null) {
-                if (BaseSettings.debug) {
-                    System.out.println("Cache hit: " + "/v1/" + simpleName);
-                }
-                return compressed;
-            }
-            List readObjects = readPaginatedResponse(page, pageSize, full, httpRequest);
-            if (readObjects != null) {
-                if (BaseSettings.debug) {
-                    System.out.println("Cache miss: " + "/v1/" + simpleName);
-                }
-                compressed = CompressionController.compress(gson.toJson(readObjects).getBytes());
-                genericPageCAO.create("/v1/" + simpleName, page, pageSize, compressed);
+            Object object = genericDAO.readPaginated(pageSize, page, theClass, full);
+            if (returnType.equals(ReturnType.OBJECT)) {
+                return object;
+            } else if (returnType.equals(ReturnType.JSON)) {
+                ResultEntity resultEntity = new ResultEntity(theClass.getSimpleName(), (List) object);
+                byte[] compressed = CompressionController.compress(gson.toJson(resultEntity).getBytes());
+                genericCAO.create(CacheTypesEnum.PAGE_DATABASE, simpleName + "-" + page + "-" + pageSize, compressed);
                 return compressed;
             }
         }
@@ -192,10 +150,11 @@ public class GenericController extends BaseController implements GenericControll
                 if (genericDAO.update(object)) {
                     byte[] json = gson.toJson(object).getBytes();
                     byte[] binary = ActiveJSerializer.serialize(object, serializer);
-                    genericLocalCAO.update(CacheTypesEnum.DATABASE, id, binary);
+                    genericCAO.update(CacheTypesEnum.DATABASE, id, binary);
                     byte[] compressed = CompressionController.compress(json);
-                    genericLocalCAO.update(CacheTypesEnum.API, id, compressed);
-                    genericPageCAO.delete();
+                    genericCAO.update(CacheTypesEnum.API, id, compressed);
+                    genericCAO.delete(CacheTypesEnum.PAGE_API, theClass);
+                    genericCAO.delete(CacheTypesEnum.PAGE_DATABASE, theClass);
                     genericSAO.updateDocument(object, index);
                     return true;
                 }
@@ -209,33 +168,36 @@ public class GenericController extends BaseController implements GenericControll
         if (canAccess(httpRequest, DELETE_PERMISSION_LEVEL, basicUserController)) {
             if (createLog("delete", theClass.getSimpleName() + "-" + id, httpRequest)) {
                 if (genericDAO.delete(id, theClass)) {
-                    genericLocalCAO.delete(id);
-                    genericPageCAO.delete();
+                    genericCAO.delete(CacheTypesEnum.DATABASE, id);
+                    genericCAO.delete(CacheTypesEnum.PAGE_API, theClass);
+                    genericCAO.delete(CacheTypesEnum.PAGE_DATABASE, theClass);
                     genericSAO.deleteDocument(id, index);
                     return true;
+                } else if (BaseSettings.debug) {
+                    logger.info("Failed to delete object");
                 }
+            } else if (BaseSettings.debug) {
+                logger.info("Failed to create log");
             }
+        } else if (BaseSettings.debug) {
+            logger.info("Unauthorized access");
         }
         return false;
     }
 
     @Override
-    public List search(String query, String returnColumn, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
-        if (canAccess(httpRequest, SEARCH_PERMISSION_LEVEL, basicUserController)) {
-            if (createLog("search", theClass.getSimpleName() + "-" + query, httpRequest)) {
-                return genericDAO.databaseSearch(BaseSettings.maxSearchResults, query, returnColumn, SEARCH_COLUMN, theClass);
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public byte[] searchAPIResponse(String query, String returnColumn, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IOException, IllegalAccessException, InstantiationException {
-        if (canAccess(httpRequest, SEARCH_PERMISSION_LEVEL, basicUserController)) {
-            if (createLog("search", theClass.getSimpleName() + "-" + query, httpRequest)) {
-                List searchList = search(query, returnColumn, httpRequest);
-                if (searchList != null) {
-                    return CompressionController.compress(gson.toJson(searchList).getBytes());
+    public Object search(String query, String returnColumn, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
+        if (query != null && returnColumn != null) {
+            if (query.length() > 0 && returnColumn.length() > 0) {
+                if (canAccess(httpRequest, SEARCH_PERMISSION_LEVEL, basicUserController)) {
+                    if (createLog("search", theClass.getSimpleName() + "-" + query, httpRequest)) {
+                        Object object = genericDAO.search(BaseSettings.maxSearchResults, query, returnColumn, SEARCH_COLUMN, theClass);
+                        if (returnType.equals(ReturnType.OBJECT)) {
+                            return object;
+                        } else if (returnType.equals(ReturnType.JSON)) {
+                            return CompressionController.compress(gson.toJson(object).getBytes());
+                        }
+                    }
                 }
             }
         }
@@ -243,19 +205,24 @@ public class GenericController extends BaseController implements GenericControll
     }
 
     @Override
-    public List readOrderByPaginated(int resultCount, int page, String orderBy, boolean ascending, boolean full, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public Object readOrderByPaginated(int resultCount, int page, String orderBy, boolean ascending, boolean full, ReturnType returnType, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
             if (createLog(orderBy, theClass.getSimpleName() + "-" + page + "_" + resultCount, httpRequest)) {
-                return genericDAO.readOrderedBy(resultCount, page, theClass, orderBy, ascending, full);
+                Object object = genericDAO.readOrderedBy(resultCount, page, theClass, orderBy, ascending, full);
+                if (returnType.equals(ReturnType.OBJECT)) {
+                    return object;
+                } else if (returnType.equals(ReturnType.JSON)) {
+                    return CompressionController.compress(gson.toJson(object).getBytes());
+                }
             }
         }
         return null;
     }
 
-    public List<String> readManyOrderByPaginated(int resultCount, int page, List<String> orderByList, List<Class> theClassList, boolean ascending, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public List<String> readManyOrderByPaginated(int resultCount, int page, List<String> orderByList, List<Class> theClassList, boolean ascending, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
             if (createLog(orderByList.toString(), theClassList.toString() + "-" + page + "_" + resultCount, httpRequest)) {
-                ResultSet data = genericDAO.readManyOrderedBy(resultCount, page, theClassList, orderByList, ascending);
+                ResultSet data = genericDAO.readManyOrderByPaginated(resultCount, page, theClassList, orderByList, ascending);
                 List<String> list = new LinkedList<>();
                 while (data.next()) {
                     list.add(data.getLong("id") + "-" + data.getString("mediaType"));
@@ -277,7 +244,7 @@ public class GenericController extends BaseController implements GenericControll
 
             if (theClass.getSimpleName().toLowerCase().equals(className) && orderByColumn.equals(orderBy)) {
                 long id = Long.parseLong(key);
-                Object cachedObject = genericLocalCAO.read(CacheTypesEnum.DATABASE, id);
+                Object cachedObject = genericCAO.read(CacheTypesEnum.DATABASE, id);
                 if (cachedObject != null) {
                     objects.add((BasicFormObject) cachedObject);
                 } else {
@@ -292,20 +259,7 @@ public class GenericController extends BaseController implements GenericControll
     }
 
     @Override
-    public byte[] readOrderByPaginatedAPI(int resultCount, int page, String orderBy, boolean ascending, boolean full, HttpRequest httpRequest) throws IOException, SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
-        if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
-            if (createLog("popular", theClass.getSimpleName() + "-" + page + "_" + resultCount, httpRequest)) {
-                List readPage = readOrderByPaginated(resultCount, page, orderBy, ascending, full, httpRequest);
-                if (readPage != null) {
-                    return CompressionController.compress(gson.toJson(readPage).getBytes());
-                }
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public Long getTotal(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public Long getTotal(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
             if (createLog("total", theClass.getSimpleName(), httpRequest)) {
                 return genericDAO.getTotal(theClass);
@@ -315,7 +269,7 @@ public class GenericController extends BaseController implements GenericControll
     }
 
     @Override
-    public Long getTotalPages(int maxResultsSize, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public Long getTotalPages(int maxResultsSize, HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, READ_PERMISSION_LEVEL, basicUserController)) {
             if (createLog("totalPages", theClass.getSimpleName() + "-" + maxResultsSize, httpRequest)) {
                 return genericDAO.getTotalPages(maxResultsSize, theClass);
@@ -329,7 +283,6 @@ public class GenericController extends BaseController implements GenericControll
         if (canAccess(httpRequest, PermissionGroupEnum.OPERATOR, basicUserController)) {
             if (createLog("deleteAllIndexes", theClass.getSimpleName(), httpRequest)) {
                 genericSAO.deleteAllDocuments(index);
-                genericSAO.reindex(REINDEX_BATCH_SIZE, genericDAO, index, theClass);
                 return ok();
             }
         } else {
@@ -339,11 +292,15 @@ public class GenericController extends BaseController implements GenericControll
     }
 
     @Override
-    public boolean reindex(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public boolean reindex(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, PermissionGroupEnum.OPERATOR, basicUserController)) {
             if (createLog("reindex", theClass.getSimpleName(), httpRequest)) {
                 try {
-                    genericSAO.reindex(BaseSettings.maxSearchResults, genericDAO, index, theClass);
+                    long totalPages = genericDAO.getTotalPages(BaseSettings.maxSearchResults, theClass);
+                    for (int i = 0; i <= totalPages; i++) {
+                        List items = genericDAO.readPaginated(BaseSettings.maxSearchResults, i, theClass, false);
+                        genericSAO.reindex(REINDEX_BATCH_SIZE, items, index, theClass);
+                    }
                     return true;
                 } catch (Exception e) {
                     if (BaseSettings.debug) {
@@ -356,7 +313,7 @@ public class GenericController extends BaseController implements GenericControll
     }
 
     @Override
-    public byte[] getSample(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException {
+    public byte[] getSample(HttpRequest httpRequest) throws SQLException, InvocationTargetException, NoSuchMethodException, IllegalAccessException, InstantiationException, IOException {
         if (canAccess(httpRequest, PermissionGroupEnum.USER, basicUserController)) {
             if (createLog("sample", theClass.getSimpleName(), httpRequest)) {
                 return sample;
@@ -371,11 +328,45 @@ public class GenericController extends BaseController implements GenericControll
             String apiKey = getJwt(httpRequest);
             SecurityLog securityLog = new SecurityLog(name, value, userId, apiKey);
             if (BaseSettings.debug) {
-                System.out.println("Adding to log: " + securityLog);
+                logger.info("Adding to log: " + securityLog);
             }
             return loggingDAO.create(securityLog);
         } else {
             return true;
         }
+    }
+
+    @Override
+    public Card toCard(Object object, String action) throws InvocationTargetException, IllegalAccessException {
+        Card outputCard = new Card();
+        Class cardClass = cardTemplate.getClass();
+        Field[] fields = cardClass.getDeclaredFields();
+        outputCard.setAction(action);
+        outputCard.setClassName(object.getClass().getSimpleName().toLowerCase());
+        outputCard.setPosterLocation("/assets/poster.webp");
+        for (Field field : fields) {
+            if (field.getName().equals("id")) {
+                Method idGetter = ReflectionMethods.getId(object.getClass());
+                Long id = (Long) idGetter.invoke(object);
+                outputCard.setId(id);
+            } else if (field.getName().equals("posterLocation")) {
+                //Todo implement image loading
+            } else {
+                Method varNameGetter = ReflectionMethods.getGetter(field, cardClass);
+                String getterData = (String) varNameGetter.invoke(cardTemplate);
+                if (getterData != null) {
+                    String varName = getterData.substring(0, 1).toUpperCase() + getterData.substring(1);
+                    try {
+                        Method getter = object.getClass().getMethod("get" + varName);
+                        String objectValue = String.valueOf(getter.invoke(object));
+                        Method setter = ReflectionMethods.getSetter(field, outputCard.getClass(), String.class);
+                        setter.invoke(outputCard, objectValue);
+                    } catch (NoSuchMethodException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+        return outputCard;
     }
 }

@@ -14,7 +14,7 @@ public class UploadComponent {
                     html(
                         input().withType("file").withName(name).withId(name).withValue(value),
                         br(),
-                        input().withType("button").withValue("Upload file").attr("onclick", "uploadToPath()"),
+                        input().withType("button").withValue("Upload file").attr("onclick", "uploadToPath('" + name + "')"),
                         br(),
                         progress().withId(name + "ProgressBar").withValue("0").withMax("100"),
                         h3().withId("status"),

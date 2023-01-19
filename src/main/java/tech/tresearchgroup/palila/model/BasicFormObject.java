@@ -11,8 +11,8 @@ public class BasicFormObject {
         Method getId = ReflectionMethods.getId(theClass);
         Card card = new Card();
         card.setId((Long) getId.invoke(this));
-        card.setPosterLocation("/assets/poster.png");
-        card.setMediaType(theClass.getSimpleName().toLowerCase());
+        card.setPosterLocation("/assets/poster.webp");
+        card.setClassName(theClass.getSimpleName().toLowerCase());
         return card;
     }
 }

@@ -10,18 +10,18 @@ public class PosterViewComponent {
     public static @NotNull DomContent render(Card card, int size) {
         return div(
             div(
-                input().withValue(card.getPosterLocation()).withName(card.getMediaType() + "-" + card.getId() + "-poster").isHidden(),
+                input().withValue(card.getPosterLocation()).withName(card.getClassName() + "-" + card.getId() + "-poster").isHidden(),
                 img().withAlt("blah").withClass("img-responsive").withSrc(card.getPosterLocation()).withWidth("%100").withHeight("%100"),
-                SelectCheckboxComponent.render("browseSelectCheckbox", "checkbox-" + card.getType() + card.getMediaType() + "-" + card.getId()),
+                SelectCheckboxComponent.render("browseSelectCheckbox", "checkbox-" + card.getAction() + card.getClassName() + "-" + card.getId()),
                 a(
                     i().withClass("play-button fas fa-play")
-                ).withHref("/play/" + card.getMediaType() + "/" + card.getId()),
+                ).withHref("/play/" + card.getClassName() + "/" + card.getId()),
                 a(
                     i().withClass("edit-button fas fa-edit")
-                ).withHref("/edit/" + card.getMediaType() + "/" + card.getId()),
+                ).withHref("/edit/" + card.getClassName() + "/" + card.getId()),
                 a(
                     i().withClass("delete-button fas fa-trash-alt")
-                ).withHref("#delete-" + card.getType() + card.getMediaType() + "-" + card.getId() + "-modal"),
+                ).withHref("#delete-" + card.getClassName() + "-" + card.getId()),
                 ModalComponent.render(
                     "Confirm deletion",
                     span(
@@ -30,26 +30,26 @@ public class PosterViewComponent {
                         br(),
                         text("This action cannot be undone!")
                     ),
-                    "/api/delete/" + card.getMediaType() + "?id=" + card.getId(),
+                    "/delete/" + card.getClassName() + "/" + card.getId(),
                     "DELETE",
-                    "delete-" + card.getType() + card.getMediaType() + "-" + card.getId() + "-modal"
+                    "delete-" + card.getClassName() + "-" + card.getId()
                 )
             ).withClass("card-image"),
             div(
                 div(
-                    input().withValue(card.getTitle()).withName(card.getMediaType() + "-" + card.getId() + "-title").isHidden(),
-                    a(card.getTitle()).withHref("/view/" + card.getMediaType() + "/" + card.getId())
+                    input().withValue(card.getTitle()).withName(card.getClassName() + "-" + card.getId() + "-title").isHidden(),
+                    a(card.getTitle()).withHref("/view/" + card.getClassName() + "/" + card.getId())
                 ).withClass("card-title"),
                 br(),
-                input().withValue(card.getReleaseDate()).withName(card.getMediaType() + "-" + card.getId() + "-releaseDate").isHidden(),
-                div(card.getReleaseDate()).withClass("card-release-date"),
-                input().withValue(card.getMpaaRating()).withName(card.getMediaType() + "-" + card.getId() + "-mpaaRating").isHidden(),
-                div(card.getMpaaRating()).withClass("card-mpaa-rating"),
+                input().withValue(card.getTopLeft()).withName(card.getClassName() + "-" + card.getId() + "-releaseDate").isHidden(),
+                div(card.getTopLeft()).withClass("card-release-date"),
+                input().withValue(card.getTopRight()).withName(card.getClassName() + "-" + card.getId() + "-mpaaRating").isHidden(),
+                div(card.getTopRight()).withClass("card-mpaa-rating"),
                 br(),
-                input().withValue(card.getRuntime()).withName(card.getMediaType() + "-" + card.getId() + "-runTime").isHidden(),
-                div(card.getRuntime()).withClass("card-runtime"),
-                input().withValue(card.getUserRating()).withName(card.getMediaType() + "-" + card.getId() + "-userRating").isHidden(),
-                div(card.getUserRating()).withClass("card-user-rating"),
+                input().withValue(card.getBottomLeft()).withName(card.getClassName() + "-" + card.getId() + "-runTime").isHidden(),
+                div(card.getBottomLeft()).withClass("card-runtime"),
+                input().withValue(card.getBottomRight()).withName(card.getClassName() + "-" + card.getId() + "-userRating").isHidden(),
+                div(card.getBottomRight()).withClass("card-user-rating"),
                 br()
             ).withClass("card-header")
         ).withClass("card").withStyle("width: " + size + "px;");
